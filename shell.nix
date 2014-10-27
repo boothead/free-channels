@@ -1,13 +1,10 @@
+with import <nixpkgs> {};
 
-let
-  pkgs = import <nixpkgs> {};
-  hs = pkgs.haskellPackages;
-  stdenv = pkgs.stdenv;
-in rec {
-  freeEnv = stdenv.mkDerivation rec {
-    name = "free-env";
-    version = "0.0.0.1";
-    src = ./.;
-    buildInputs = [ hs.ghc hs.free ];
-  };
-}
+let haskellPackages = pkgs.haskellPackages.override {
+      extension = self: super: {
+        freeChannels = self.callPackage ./. {};
+      };
+    };
+in lib.overrideDerivation haskellPackages.freeChannels (attrs: {
+     buildInputs = [ haskellPackages.cabalInstall_1_18_0_3 ] ++ attrs.buildInputs;
+   })
