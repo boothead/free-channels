@@ -22,21 +22,32 @@ data ChannelF a next = Put (Chan a) a next
 
 type Channel a m = FreeT (ChannelF a) m
 
+type ChanST a = ST (Seq a)
 
-newtype Chan a = Chan { unChan :: Seq a } deriving (Show)
-
-putChan :: a -> Chan a -> Chan a
-putChan a (Chan chan) = Chan $ chan |> a
-
-takeChan :: Chan a -> Maybe (a, Chan a)
-takeChan (Chan chan) = case viewl chan of
-  EmptyL -> Nothing
-  a :< as -> Just (a, Chan as)
+data Chan a = Chan {
+    putChan :: a -> ChanST a () 
+  , getChan :: ChanST a (Maybe a)
+  }
   
-newChan :: Chan a
-newChan = Chan S.empty
+sendChan :: a -> Chan a -> ChanST a ()
+sendChan a (Chan putter _) = putter a
 
+takeChan :: Chan a -> ChanST a (Maybe a)
+takeChan (Chan _ recvr) = recvr
 
+newChan :: ChanST a (Chan a)
+newChan = do
+  q <- newSTRef S.empty
+  return $ Chan (getQ q) (putQ q) 
+
+getQ ref = do
+  s <- readSTRef
+  writeSTRef _
+  return _
+
+putQ ref = do
+  s <- readSTRef ref
+  writeSTRef _
 
 putC :: MonadFree (ChannelF a) m => Chan a -> a -> m ()
 putC chan a = liftF $ Put chan a ()
