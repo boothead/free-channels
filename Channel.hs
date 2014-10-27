@@ -3,51 +3,49 @@
 
 module Channel where
 
-import           Control.Applicative
+-- import           Control.Applicative
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.ST
-import           Control.Monad.State.Class
-import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Free
-import           Control.Monad.Trans.State (runStateT)
 import           Data.Foldable (forM_)
-import           Data.STRef
+import           Data.IORef
 import           Data.Sequence (Seq, viewl, ViewL(..), (|>))
 import qualified Data.Sequence as S
+
+--------------------------------------------------------------------------------
+
+type ChanState a = IORef (Seq a)
+
+data Chan a = Chan {
+    putChan :: a -> IO () 
+  , getChan :: IO (Maybe a)
+  }
+
+newChan :: IO (Chan a)
+newChan = do
+  q <- newIORef S.empty
+  return $ Chan (putQ q) (getQ q) -- (putQ _) (getQ q)
+
+getQ :: ChanState a -> IO (Maybe a)
+getQ q = do
+  chan <- readIORef q
+  case viewl chan of
+    EmptyL -> return Nothing
+    a :< as -> do
+      writeIORef q as
+      return $ Just a
+  
+putQ :: ChanState a -> a -> IO ()
+putQ q a = do
+  modifyIORef q (|> a)
+
+--------------------------------------------------------------------------------
 
 data ChannelF a next = Put (Chan a) a next
                      | Recv (Chan a) (Maybe a -> next)
                      | MkChan (Chan a -> next)
      deriving (Functor)
-
+     
 type Channel a m = FreeT (ChannelF a) m
-
-type ChanST a = ST (Seq a)
-
-data Chan a = Chan {
-    putChan :: a -> ChanST a () 
-  , getChan :: ChanST a (Maybe a)
-  }
-  
-sendChan :: a -> Chan a -> ChanST a ()
-sendChan a (Chan putter _) = putter a
-
-takeChan :: Chan a -> ChanST a (Maybe a)
-takeChan (Chan _ recvr) = recvr
-
-newChan :: ChanST a (Chan a)
-newChan = do
-  q <- newSTRef S.empty
-  return $ Chan (getQ q) (putQ q) 
-
-getQ ref = do
-  s <- readSTRef
-  writeSTRef _
-  return _
-
-putQ ref = do
-  s <- readSTRef ref
-  writeSTRef _
 
 putC :: MonadFree (ChannelF a) m => Chan a -> a -> m ()
 putC chan a = liftF $ Put chan a ()
@@ -58,6 +56,8 @@ recvC chan = liftF $ Recv chan id
 mkChan :: MonadFree (ChannelF a) m => m (Chan a)
 mkChan = liftF $ MkChan id
 
+
+--------------------------------------------------------------------------------
 
 prog :: (MonadIO m) => Channel Int m String
 prog = do
@@ -72,30 +72,23 @@ prog = do
      liftIO $ print e
   return $ show (el, el2)
 
+--------------------------------------------------------------------------------
 
-interpret :: (MonadState (Chan a) ms) => Channel a ms b -> ms b
-interpret chan = do
-  c <- runFreeT chan
+interpret :: MonadIO m => FreeT (ChannelF a) m b -> m b
+interpret chan' = do
+  c <- runFreeT chan'
   case c of
     Pure a -> return a
     
     (Free (MkChan nxt)) -> do
-      let c = newChan
-      put c
-      interpret $ nxt newChan
+      interpret $ nxt =<< liftIO newChan
       
     (Free (Put chan a nxt)) -> do
-      modify $ putChan a
+      liftIO $ putChan chan a
       interpret nxt
     
-    (Free (Recv _ nxt)) -> do
-      chan <- get
-      case takeChan chan of
-        Nothing -> interpret $ nxt Nothing
-        Just (el, chan') -> do
-          put chan'
-          interpret $ nxt (Just el)
+    (Free (Recv chan nxt)) -> do
+      interpret $ nxt =<< liftIO (getChan chan)
       
---test :: (MonadIO m, MonadFree (ChannelF Int) m) => m (String, Chan Integer)
---test :: (Monad m) => m (String, Chan a)
---test = flip runStateT (Chan S.empty) $ interpret prog
+test :: IO String
+test = interpret prog

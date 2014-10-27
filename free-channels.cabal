@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Channel
+  ghc-options: -Wall
   -- other-modules:       
   other-extensions:    DeriveFunctor, FlexibleContexts
   build-depends:       base >=4.7 && <4.8
